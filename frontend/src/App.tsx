@@ -56,20 +56,65 @@ function App() {
     setSelectedIncident(incident);
   };
 
-  const refreshData = () => {
-    ApiClient.getIncidents().then(setIncidents);
-    ApiClient.getSensorEvents().then(setSensorEvents);
-    ApiClient.getSnapshot().then(setSnapshot);
-  };
-
   const handleCreateDemoIncident = async () => {
-    await ApiClient.createIncident();
-    refreshData();
+    const created = await ApiClient.createIncident();
+    if (created) {
+      // backend ok: voeg echte incident toe
+      setIncidents((prev) => [created, ...prev]);
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalIncidents: prev.totalIncidents + 1,
+              openIncidents: prev.openIncidents + 1,
+              openByType: {
+                ...prev.openByType,
+                [created.type]: (prev.openByType[created.type] ?? 0) + 1,
+              },
+              lastUpdated: created.createdAt,
+            }
+          : prev,
+      );
+    } else {
+      // backend niet bereikbaar: maak lokaal demo-incident
+      const now = new Date().toISOString();
+      const local: Incident = {
+        id: `LOCAL-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        type: 'TRAFFIC',
+        status: 'OPEN',
+        priority: 3,
+        description: 'Demo-incident (alleen frontend, backend niet bereikbaar)',
+        location: 'Lokale demo locatie',
+        source: 'Frontend-mock',
+        assignedTo: 'demo-operator',
+        createdAt: now,
+        updatedAt: now,
+      };
+      setIncidents((prev) => [local, ...prev]);
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalIncidents: prev.totalIncidents + 1,
+              openIncidents: prev.openIncidents + 1,
+              openByType: {
+                ...prev.openByType,
+                [local.type]: (prev.openByType[local.type] ?? 0) + 1,
+              },
+            }
+          : prev,
+      );
+    }
   };
 
   const handleSimulateSensor = async () => {
-    await ApiClient.simulateSensorEvent();
-    refreshData();
+    const event = await ApiClient.simulateSensorEvent();
+    if (event) {
+      setSensorEvents((prev) => [event, ...prev]);
+      // sensor-event in backend kan ook een nieuw incident genereren
+      ApiClient.getIncidents().then(setIncidents);
+      ApiClient.getSnapshot().then(setSnapshot);
+    }
   };
 
   const handleResolveSelected = async () => {
@@ -77,7 +122,42 @@ function App() {
     const updated = await ApiClient.updateIncidentStatus(selectedIncident.id, 'RESOLVED');
     if (updated) {
       setSelectedIncident(updated);
-      refreshData();
+      setIncidents((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      const t = updated.type;
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              openIncidents: Math.max(0, prev.openIncidents - 1),
+              openByType: {
+                ...prev.openByType,
+                [t]: Math.max(0, (prev.openByType[t] ?? 0) - 1),
+              },
+              lastUpdated: updated.updatedAt,
+            }
+          : prev,
+      );
+    } else {
+      // backend niet bereikbaar: update alleen lokaal geselecteerd incident
+      setSelectedIncident((prev) => (prev ? { ...prev, status: 'RESOLVED' } : prev));
+      setIncidents((prev) =>
+        prev.map((i) => (i.id === selectedIncident.id ? { ...i, status: 'RESOLVED' } : i)),
+      );
+      if (selectedIncident) {
+        const type = selectedIncident.type;
+        setSnapshot((prev) =>
+          prev
+            ? {
+                ...prev,
+                openIncidents: Math.max(0, prev.openIncidents - 1),
+                openByType: {
+                  ...prev.openByType,
+                  [type]: Math.max(0, (prev.openByType[type] ?? 0) - 1),
+                },
+              }
+            : prev,
+        );
+      }
     }
   };
 
@@ -97,7 +177,12 @@ function App() {
             <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-right">
               <p className="text-sm text-slate-300">Laatste update</p>
               <p className="text-lg font-semibold text-white">
-                {snapshot ? new Date(snapshot.lastUpdated).toLocaleTimeString() : 'Live'}
+                {snapshot
+                  ? new Date(snapshot.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : 'Live'}
+              </p>
+              <p className="text-xs text-slate-400">
+                {snapshot ? new Date(snapshot.lastUpdated).toLocaleDateString() : ''}
               </p>
             </div>
           </div>
@@ -287,7 +372,6 @@ function App() {
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-slate-900">Sensor feed</h3>
-                <span className="text-xs font-medium uppercase tracking-wide text-brand-600">Live simulatie</span>
               </div>
               <div className="mt-4 space-y-3">
                 {sensorEvents.slice(0, 4).map((event) => (
