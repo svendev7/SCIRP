@@ -56,12 +56,6 @@ function App() {
     setSelectedIncident(incident);
   };
 
-  const refreshData = () => {
-    ApiClient.getIncidents().then(setIncidents);
-    ApiClient.getSensorEvents().then(setSensorEvents);
-    ApiClient.getSnapshot().then(setSnapshot);
-  };
-
   const handleCreateDemoIncident = async () => {
     const created = await ApiClient.createIncident();
     if (created) {
