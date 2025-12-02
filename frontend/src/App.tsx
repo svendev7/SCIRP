@@ -67,6 +67,11 @@ function App() {
               ...prev,
               totalIncidents: prev.totalIncidents + 1,
               openIncidents: prev.openIncidents + 1,
+              openByType: {
+                ...prev.openByType,
+                [created.type]: (prev.openByType[created.type] ?? 0) + 1,
+              },
+              lastUpdated: created.createdAt,
             }
           : prev,
       );
@@ -86,6 +91,19 @@ function App() {
         updatedAt: now,
       };
       setIncidents((prev) => [local, ...prev]);
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalIncidents: prev.totalIncidents + 1,
+              openIncidents: prev.openIncidents + 1,
+              openByType: {
+                ...prev.openByType,
+                [local.type]: (prev.openByType[local.type] ?? 0) + 1,
+              },
+            }
+          : prev,
+      );
     }
   };
 
@@ -93,16 +111,9 @@ function App() {
     const event = await ApiClient.simulateSensorEvent();
     if (event) {
       setSensorEvents((prev) => [event, ...prev]);
-    } else {
-      const now = new Date().toISOString();
-      const local: SensorEvent = {
-        id: `LOCAL-SENS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-        sensorId: 'SIM-LOCAL',
-        payload: 'vehicle_count=150,avg_speed=15kmh (frontend-mock)',
-        eventType: 'TRAFFIC',
-        receivedAt: now,
-      };
-      setSensorEvents((prev) => [local, ...prev]);
+      // sensor-event in backend kan ook een nieuw incident genereren
+      ApiClient.getIncidents().then(setIncidents);
+      ApiClient.getSnapshot().then(setSnapshot);
     }
   };
 
@@ -112,11 +123,17 @@ function App() {
     if (updated) {
       setSelectedIncident(updated);
       setIncidents((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      const t = updated.type;
       setSnapshot((prev) =>
         prev
           ? {
               ...prev,
               openIncidents: Math.max(0, prev.openIncidents - 1),
+              openByType: {
+                ...prev.openByType,
+                [t]: Math.max(0, (prev.openByType[t] ?? 0) - 1),
+              },
+              lastUpdated: updated.updatedAt,
             }
           : prev,
       );
@@ -126,6 +143,21 @@ function App() {
       setIncidents((prev) =>
         prev.map((i) => (i.id === selectedIncident.id ? { ...i, status: 'RESOLVED' } : i)),
       );
+      if (selectedIncident) {
+        const type = selectedIncident.type;
+        setSnapshot((prev) =>
+          prev
+            ? {
+                ...prev,
+                openIncidents: Math.max(0, prev.openIncidents - 1),
+                openByType: {
+                  ...prev.openByType,
+                  [type]: Math.max(0, (prev.openByType[type] ?? 0) - 1),
+                },
+              }
+            : prev,
+        );
+      }
     }
   };
 
@@ -145,7 +177,12 @@ function App() {
             <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-right">
               <p className="text-sm text-slate-300">Laatste update</p>
               <p className="text-lg font-semibold text-white">
-                {snapshot ? new Date(snapshot.lastUpdated).toLocaleTimeString() : 'Live'}
+                {snapshot
+                  ? new Date(snapshot.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : 'Live'}
+              </p>
+              <p className="text-xs text-slate-400">
+                {snapshot ? new Date(snapshot.lastUpdated).toLocaleDateString() : ''}
               </p>
             </div>
           </div>
@@ -335,7 +372,6 @@ function App() {
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-slate-900">Sensor feed</h3>
-                <span className="text-xs font-medium uppercase tracking-wide text-brand-600">Live simulatie</span>
               </div>
               <div className="mt-4 space-y-3">
                 {sensorEvents.slice(0, 4).map((event) => (
