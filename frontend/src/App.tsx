@@ -63,13 +63,53 @@ function App() {
   };
 
   const handleCreateDemoIncident = async () => {
-    await ApiClient.createIncident();
-    refreshData();
+    const created = await ApiClient.createIncident();
+    if (created) {
+      // backend ok: voeg echte incident toe
+      setIncidents((prev) => [created, ...prev]);
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              totalIncidents: prev.totalIncidents + 1,
+              openIncidents: prev.openIncidents + 1,
+            }
+          : prev,
+      );
+    } else {
+      // backend niet bereikbaar: maak lokaal demo-incident
+      const now = new Date().toISOString();
+      const local: Incident = {
+        id: `LOCAL-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        type: 'TRAFFIC',
+        status: 'OPEN',
+        priority: 3,
+        description: 'Demo-incident (alleen frontend, backend niet bereikbaar)',
+        location: 'Lokale demo locatie',
+        source: 'Frontend-mock',
+        assignedTo: 'demo-operator',
+        createdAt: now,
+        updatedAt: now,
+      };
+      setIncidents((prev) => [local, ...prev]);
+    }
   };
 
   const handleSimulateSensor = async () => {
-    await ApiClient.simulateSensorEvent();
-    refreshData();
+    const event = await ApiClient.simulateSensorEvent();
+    if (event) {
+      setSensorEvents((prev) => [event, ...prev]);
+    } else {
+      const now = new Date().toISOString();
+      const local: SensorEvent = {
+        id: `LOCAL-SENS-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        sensorId: 'SIM-LOCAL',
+        payload: 'vehicle_count=150,avg_speed=15kmh (frontend-mock)',
+        eventType: 'TRAFFIC',
+        receivedAt: now,
+      };
+      setSensorEvents((prev) => [local, ...prev]);
+    }
   };
 
   const handleResolveSelected = async () => {
@@ -77,7 +117,21 @@ function App() {
     const updated = await ApiClient.updateIncidentStatus(selectedIncident.id, 'RESOLVED');
     if (updated) {
       setSelectedIncident(updated);
-      refreshData();
+      setIncidents((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              openIncidents: Math.max(0, prev.openIncidents - 1),
+            }
+          : prev,
+      );
+    } else {
+      // backend niet bereikbaar: update alleen lokaal geselecteerd incident
+      setSelectedIncident((prev) => (prev ? { ...prev, status: 'RESOLVED' } : prev));
+      setIncidents((prev) =>
+        prev.map((i) => (i.id === selectedIncident.id ? { ...i, status: 'RESOLVED' } : i)),
+      );
     }
   };
 
